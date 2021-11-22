@@ -1,0 +1,117 @@
+useRes      = input(defval = true, title = "Use Alternate Resolution?")
+intRes      = input(defval = 3,    title = "Multiplier for Alernate Resolution")
+stratRes    = ismonthly? tostring(interval*intRes,"###M") : isweekly? tostring(interval*intRes,"###W") : isdaily?  tostring(interval*intRes,"###D") : isintraday ? tostring(interval*intRes,"####") : '60'
+//
+basisType   = input(defval = "SMMA", title = "MA Type: ", options=["SMA", "EMA", "DEMA", "TEMA", "WMA", "VWMA", "SMMA", "HullMA", "LSMA", "ALMA", "SSMA", "TMA"])
+basisLen    = input(defval = 8, title = "MA Period", minval = 1)
+offsetSigma = input(defval = 6, title = "Offset for LSMA / Sigma for ALMA", minval = 0)
+offsetALMA  = input(defval = 0.85, title = "Offset for ALMA", minval = 0, step = 0.01)
+delayOffset = input(defval = 0, title = "Delay Open/Close MA (Forces Non-Repainting)", minval = 0, step = 1)
+//
+uDiv       = input(false,"Show Divergence Channel")
+multi      = input(0.5,minval=0.0,maxval=3.0,title="Divergence Channel Width Factor (Stddev)")
+uHid =       input(false, title="Show Hidden Divergence")
+uReg =       input(false, title="Show Regular Divergence")
+uDiv := uReg or uHid ? uDiv : false
+
+// === /INPUTS ===
+
+// - variant(type, src, len)
+// Returns MA input selection variant, default to SMA if blank or typo.
+
+// Returns MA input selection variant, default to SMA if blank or typo.
+variant(type, src, len, offSig, offALMA) =>
+    v1 = sma(src, len)                                                  // Simple
+    v2 = ema(src, len)                                                  // Exponential
+    v3 = 2 * v2 - ema(v2, len)                                          // Double Exponential
+    v4 = 3 * (v2 - ema(v2, len)) + ema(ema(v2, len), len)               // Triple Exponential
+    v5 = wma(src, len)                                                  // Weighted
+    v6 = vwma(src, len)                                                 // Volume Weighted
+    v7 = 0.0
+    v7 := na(v7[1]) ? sma(src, len) : (v7[1] * (len - 1) + src) / len    // Smoothed
+    v8 = wma(2 * wma(src, len / 2) - wma(src, len), round(sqrt(len)))   // Hull
+    v9 = linreg(src, len, offSig)                                       // Least Squares
+    v10 = alma(src, len, offALMA, offSig)                               // Arnaud Legoux
+    v11 = sma(v1,len)                                                   // Triangular (extreme smooth)
+    // SuperSmoother filter
+    // © 2013  John F. Ehlers
+    a1 = exp(-1.414*3.14159 / len)
+    b1 = 2*a1*cos(1.414*3.14159 / len)
+    c2 = b1
+    c3 = (-a1)*a1
+    c1 = 1 - c2 - c3
+    v12 = 0.0
+    v12 := c1*(src + nz(src[1])) / 2 + c2*nz(v12[1]) + c3*nz(v12[2])
+    type=="EMA"?v2 : type=="DEMA"?v3 : type=="TEMA"?v4 : type=="WMA"?v5 : type=="VWMA"?v6 : type=="SMMA"?v7 : type=="HullMA"?v8 : type=="LSMA"?v9 : type=="ALMA"?v10 : type=="TMA"?v11: type=="SSMA"?v12: v1
+
+// security wrapper for repeat calls
+reso(exp, use, res) => use ? security(tickerid, res, exp, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on) : exp
+
+// === SERIES SETUP ===
+closeSeries     = variant(basisType, close[delayOffset], basisLen, offsetSigma, offsetALMA)
+openSeries      = variant(basisType, open[delayOffset], basisLen, offsetSigma, offsetALMA)
+closeOpenAvg    = (closeSeries + openSeries) / 2
+// === /SERIES ===
+
+// Get Alternate Open/Close Series MAs, if selected.
+closeSeriesAlt = reso(closeSeries, useRes, stratRes)
+openSeriesAlt = reso(openSeries, useRes, stratRes)
+//
+xlong       = crossover(closeSeriesAlt, openSeriesAlt)
+xshort      = crossunder(closeSeriesAlt, openSeriesAlt)
+longCond    = xlong   // alternative: longCond[1]? false : (xlong or xlong[1]) and close>closeSeriesAlt and close>=open
+shortCond   = xshort  // alternative: shortCond[1]? false : (xshort or xshort[1]) and close<closeSeriesAlt and close<=open
+// === /ALERT conditions
+
+// === PLOTTING ===
+diff = closeSeriesAlt - openSeriesAlt
+pcd  = 50000.0*diff/closeOpenAvg
+alert = longCond or shortCond
+trendColour     = closeSeriesAlt > openSeriesAlt ? green : red
+hline(0,color=gray,linestyle=dashed)
+plot(pcd,title="OCC Difference Factor", color = trendColour, linewidth=1,style=area,transp=80)
+plot(pcd,title="OCC Difference Factor", color = trendColour, linewidth=2,style=line,transp=20)
+plotshape(alert,title="OCC Alert Plot", color = trendColour,style=shape.circle,location=location.bottom,transp=0,size=size.auto)
+
+//  ||  Functions:
+
+f_top_fractal(_src)=>_src[4] < _src[2] and _src[3] < _src[2] and _src[2] > _src[1] and _src[2] > _src[0]
+f_bot_fractal(_src)=>_src[4] > _src[2] and _src[3] > _src[2] and _src[2] < _src[1] and _src[2] < _src[0]
+f_fractalize(_src)=>f_top_fractal(_src) ? 1 : f_bot_fractal(_src) ? -1 : 0
+
+// === /BASE FUNCTIONS ===
+
+rsi_high = pcd
+rsi_low = pcd
+offset_ = multi*stdev(pcd,20)
+fractal_top_rsi = f_fractalize(rsi_high) > 0 ? rsi_high[2] : na
+fractal_bot_rsi = f_fractalize(rsi_low) < 0 ? rsi_low[2] : na
+
+rsi_high_prev = valuewhen(fractal_top_rsi, rsi_high[2], 1) 
+rsi_high_price = valuewhen(fractal_top_rsi, high[2], 1)
+rsi_low_prev = valuewhen(fractal_bot_rsi, rsi_low[2], 1) 
+rsi_low_price = valuewhen(fractal_bot_rsi, low[2], 1)
+
+regular_bearish_div = fractal_top_rsi and high[2] > rsi_high_price and rsi_high[2] < rsi_high_prev and rsi_high>0
+hidden_bearish_div = fractal_top_rsi and high[2] < rsi_high_price and rsi_high[2] > rsi_high_prev and rsi_high>0
+regular_bullish_div = fractal_bot_rsi and low[2] < rsi_low_price and rsi_low[2] > rsi_low_prev and rsi_low<0
+hidden_bullish_div = fractal_bot_rsi and low[2] > rsi_low_price and rsi_low[2] < rsi_low_prev and rsi_low<0
+
+plot(title='RSI High', series=uDiv?rsi_high:na, color=gray)
+plot(title='RSI Low', series=uDiv?rsi_low:na, color=gray)
+plot(title='RSI H F', series=uDiv?fractal_top_rsi+offset_:na, color=red, offset=-2)
+plot(title='RSI L F', series=uDiv?fractal_bot_rsi-offset_:na, color=green, offset=-2)
+plot(title='RSI H D', series=uDiv?fractal_top_rsi+offset_:na, style=circles, color=(regular_bearish_div and uReg) or (hidden_bearish_div and uHid)? maroon : gray, linewidth=3, offset=-2)
+plot(title='RSI L D', series=uDiv?fractal_bot_rsi-offset_:na, style=circles, color=(regular_bullish_div and uReg) or (hidden_bullish_div and uHid)? green : gray, linewidth=3, offset=-2)
+
+plotshape(title='+RBD', series=regular_bearish_div and uReg? rsi_high[2]+offset_ : na, text='Regular', style=shape.labeldown, location=location.absolute, color=maroon, textcolor=white, offset=-2)
+plotshape(title='+HBD', series=hidden_bearish_div and uHid? rsi_high[2]+offset_ : na, text='hidden', style=shape.labeldown, location=location.absolute, color=maroon, textcolor=white, offset=-2)
+plotshape(title='-RBD', series=regular_bullish_div and uReg? rsi_low[2]-offset_ : na, text='Regular', style=shape.labelup, location=location.absolute, color=green, textcolor=white, offset=-2)
+plotshape(title='-HBD', series=hidden_bullish_div and uHid? rsi_low[2]-offset_ : na, text='hidden', style=shape.labelup, location=location.absolute, color=green, textcolor=white, offset=-2)
+
+// === ALARM ALERTS for TradingView ALARM sub-system (server based) ===
+alertcondition(alert,message="OCC BothCond",title="OCC BothCond")
+alertcondition(longCond,message="OCC LongCond",title="OCC LongCond")
+alertcondition(shortCond,message="OCC ShortCond",title="OCC ShortCond")
+// === /ALARM ALERTS
+//eof
