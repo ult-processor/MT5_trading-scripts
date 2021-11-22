@@ -1,0 +1,166 @@
+//+------------------------------------------------------------------+
+//|                                                        robot.mq5 |
+//|                                                        Processor |
+//|                         http://ult-processor.github.io/processor |
+//+------------------------------------------------------------------+
+#property copyright "Processor"
+#property link      "http://ult-processor.github.io/processor"
+#property version   "1.00"
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+
+#include  <Indicators\Trend.mqh>
+
+
+#include <Trade\Trade.mqh>
+
+CiIchimoku* ichimoku;
+
+CTrade trade
+int OnInit()
+  {
+ ichimoku = new CiIchimoku();
+
+      ichimoku.Create(_Symbol,PERIOD_M1,9,26,52);
+   
+//---
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+
+///---------------START OF THE ICHIMOKU IMPLMENTATION-----------------////////////
+
+      ichimoku.Refresh(-1);
+
+      double TenkanSenValue = ichimoku.TenkanSen(0);
+
+            
+
+      double KijunSenValue = ichimoku.KijunSen(0);
+
+      
+
+      double SenkouSpanAValue = ichimoku.SenkouSpanA(-26);
+
+      double SenkouSpanBValue = ichimoku.SenkouSpanB(-26);
+
+      double ChinkouSpanValue = ichimoku.ChinkouSpan(26);
+
+      Comment("TenkanSen Value:", TenkanSenValue, "\n",
+
+               "KijunSen Value:", KijunSenValue,"\n",
+
+                 "SenkouSpanA Value:",SenkouSpanAValue,"\n",
+
+                 "SenkouSpanB Value:", SenkouSpanBValue,"\n",
+
+                 "ChinkouSpan Value:", ChinkouSpanValue,"\n");
+                 if (ChinkouSpanValue < TenkanSenValue && PositionsTotal()<=50)
+                  trade.Sell(0.20);
+                 if (ChinkouSpanValue > TenkanSenValue)CloseAllSellPositions();
+                  
+                 // taking profit on the whole trade
+                 if (ChinkouSpanValue <= TenkanSenValue)CloseAllBuyPositions();
+                 if(ChinkouSpanValue > TenkanSenValue && PositionsTotal()<=50)trade.Buy(0.20);
+                                  
+                 
+                
+                 ///////--------------ENDING OF THE ICHIMOKU IMPLMENTATION--------------------//////
+   
+   
+   }
+   
+   
+   //+++++++++++++++++++++++the begining of the close position++++++++++++++++++++++++++++++++++++++++++++++////////////
+   
+   
+   void CloseAllSellPositions()
+
+  
+
+  {
+
+  //count down untill there are no Positions left
+
+  for (int i =PositionsTotal()-1; i>=0; i--) // go through all positions
+
+  {
+
+  //Get the ticket number for the current position
+
+  ulong ticket=PositionGetTicket(i);
+
+  
+
+  //Get the Position direction 
+
+  long PositionDiretion=PositionGetInteger(POSITION_TYPE);
+
+  //--- receive position ID for further work
+
+  // ulong PositionDiretion=PositionGetInteger(POSITION_TYPE);
+
+  
+
+  //if it is a sell position
+
+  //if (PositionDiretion==POSITION_TYPE);
+
+  //if its is a sell Position
+
+  if (PositionDiretion==POSITION_TYPE_SELL)
+
+  
+
+  //close the current sell position
+
+  trade.PositionClose(ticket);
+
+  }
+  
+  
+ 
+  
+  
+  
+  }
+  //++++++++++++++++++++++++the end of the sell position++++++++++++++++++++++++++++++++++++++++++++++++++++//////////////
+
+    
+  
+  //++++++++++++++++BEGINING OF THE CLOSE ALL BUY POSITION+++++++++++++++++++++++++++//
+    void CloseAllBuyPositions()
+  
+  {
+  //count down untill there are no Positions Right
+  for (int i =PositionsTotal()-1; i>=0; i--) // go through all positions
+  {
+  //Get the ticket number for the current position
+  int ticket=PositionGetTicket(i);
+  
+  //Get the Position direction 
+  int PositionDiretion=PositionGetInteger(POSITION_TYPE);
+
+  if (PositionDiretion==POSITION_TYPE_BUY)
+  //close the current sell position
+  trade.PositionClose(ticket);
+  
+  
+  }//end for loop
+  }//end the function
+  
+  
+  
+  //++++++++++++++++BEGINING OF THE CLOSE ALL BUY POSITION+++++++++++++++++++++++++++//
+  
+
+  
+  
+//+------------------------------------------------------------------+
